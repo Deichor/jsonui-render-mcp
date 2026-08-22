@@ -54,6 +54,13 @@ Register it:
     textures/*.png         your own textures, flat
     textures/nineslice.json   name -> border, as an int or [l, t, r, b]
 
+## Two things worth knowing
+
+- `layer` orders a sibling group and nothing wider. A screen-wide depth and an accumulating one both
+  look plausible and both contradict a device.
+- The anchor rule is: the child's `anchor_to` point lands on the parent's `anchor_from` point, then
+  the offset applies. `check_anchors` holds the renderer to it.
+
 ## What it does not do yet
 
 - Bindings other than a form's caption and texture.
