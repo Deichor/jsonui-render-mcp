@@ -451,6 +451,27 @@ class Renderer:
         self.paint(target)
 
 
+def namespace_of(dump):
+    """The namespace a dump's own controls are filed under.
+
+    Read from the dump rather than hardcoded: this started life reading one plugin's pack, and a
+    control naming another always carries a namespace, so a dump from anywhere else resolves
+    nothing and reports every reference as undefined. `auction` stays the default so older dumps,
+    which carry no namespace, still read.
+    """
+    from pathlib import Path
+    import json as _json
+    marker = Path(dump) / "namespace"
+    if marker.exists():
+        return marker.read_text().strip()
+    screens = Path(dump) / "screens.json"
+    if screens.exists():
+        for entry in _json.loads(screens.read_text()):
+            if entry.get("namespace"):
+                return entry["namespace"]
+    return "auction"
+
+
 def render(dump, screen_name, entries, title, out_file, icons=None):
     dump = Path(dump)
     controls = json.loads((dump / "controls.json").read_text())
@@ -460,7 +481,7 @@ def render(dump, screen_name, entries, title, out_file, icons=None):
     font = Font(FONT_DIR)
     textures = Textures(dump / "textures", VANILLA_UI.parent)
     problems = []
-    index = Index(VANILLA_UI, "auction", controls, problems)
+    index = Index(VANILLA_UI, namespace_of(dump), controls, problems)
     renderer = Renderer(controls, textures, font, entries, title, problems, index, icons)
 
     w, h = screen["width"], screen["height"]
@@ -504,7 +525,7 @@ def render_control(dump, ref, width, height, out_file, entries=None, title=""):
     font = Font(FONT_DIR)
     textures = Textures(dump / "textures", VANILLA_UI.parent)
     problems = []
-    index = Index(VANILLA_UI, "auction", controls, problems)
+    index = Index(VANILLA_UI, namespace_of(dump), controls, problems)
     renderer = Renderer(controls, textures, font, entries or [], title, problems, index)
 
     root = index.resolve(ref, {"size": [width, height]})

@@ -37,7 +37,7 @@ ROLES = [
 def rects(dump, ref, overrides):
     controls = json.loads((Path(dump) / "controls.json").read_text())
     problems = []
-    index = Index(R.VANILLA_UI, "auction", controls, problems)
+    index = Index(R.VANILLA_UI, R.namespace_of(dump), controls, problems)
     renderer = R.Renderer(
         controls,
         R.Textures(Path(dump) / "textures", R.VANILLA_UI.parent),
@@ -70,7 +70,7 @@ def main(dump):
     for anchor_from, anchor_to, size, offset, want in ROLES:
         controls = json.loads((Path(dump) / "controls.json").read_text())
         problems = []
-        index = Index(R.VANILLA_UI, "auction", controls, problems)
+        index = Index(R.VANILLA_UI, R.namespace_of(dump), controls, problems)
         renderer = R.Renderer(
             controls,
             R.Textures(Path(dump) / "textures", R.VANILLA_UI.parent),
