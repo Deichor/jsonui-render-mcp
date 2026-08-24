@@ -481,7 +481,8 @@ def render(dump, screen_name, entries, title, out_file, icons=None):
     font = Font(FONT_DIR)
     textures = Textures(dump / "textures", VANILLA_UI.parent)
     problems = []
-    index = Index(VANILLA_UI, namespace_of(dump), controls, problems)
+    namespace = namespace_of(dump)
+    index = Index(VANILLA_UI, namespace, controls, problems)
     renderer = Renderer(controls, textures, font, entries, title, problems, index, icons)
 
     w, h = screen["width"], screen["height"]
@@ -492,14 +493,14 @@ def render(dump, screen_name, entries, title, out_file, icons=None):
         "size": [w, h],
         "$text_name": "#title_text",
         "$title_text_binding_type": "none",
-        "$child_control": f"auction.{screen['body']}",
+        "$child_control": f"{namespace}.{screen['body']}",
         "layer": 2,
     }
     if screen.get("background"):
-        variant["$custom_background"] = f"auction.{screen['background']}"
+        variant["$custom_background"] = f"{namespace}.{screen['background']}"
     if screen.get("title"):
         variant["$use_custom_title_control"] = True
-        variant["$custom_title_label"] = f"auction.{screen['title']}"
+        variant["$custom_title_label"] = f"{namespace}.{screen['title']}"
     variant["$title_size"] = ["100% - 16px", 16]
     variant["$title_offset"] = [0, 3]
 
