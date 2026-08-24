@@ -57,7 +57,9 @@ Register it:
 ## Two things worth knowing
 
 - `layer` orders a sibling group and nothing wider. A screen-wide depth and an accumulating one both
-  look plausible and both contradict a device.
+  look plausible and both contradict a device. What a sibling is ordered by is its **subtree's**
+  deepest layer, not the number on its own root: a plate whose recess carries 20 sits behind a
+  figure whose panel carries nothing, and by their own numbers the recess would paint over it.
 - The anchor rule is: the child's `anchor_to` point lands on the parent's `anchor_from` point, then
   the offset applies. `check_anchors` holds the renderer to it.
 

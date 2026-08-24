@@ -376,7 +376,12 @@ class Renderer:
     def layout(self, control, x, y, parent_w, parent_h, index=None):
         """Places a control and everything under it, without painting anything yet.
 
-        `layer` orders a sibling group and nothing wider; a subtree is drawn where its root sits.
+        `layer` orders a sibling group and nothing wider — but a sibling is a *subtree*, and it is
+        ordered by the deepest layer anywhere inside it, not by the number on its own root. A plate
+        is the case: its recess carries 20 and the panel holding its figure carries nothing at all,
+        so by their own numbers the recess draws last and paints over the figure it is behind. On a
+        phone the figure is there. Taking the subtree's own maximum puts it back without reaching
+        for a screen-wide depth, which is the thing that does contradict a device.
         """
         index = control.get("collection_index", index)
         if self.hidden(control, index):
@@ -399,7 +404,7 @@ class Renderer:
         stack = control.get("type") == "stack_panel"
         vertical = control.get("orientation") == "vertical"
         # Declaration order places a stack's children; `layer` only decides what covers what.
-        order = kids if stack else sorted(kids, key=lambda kv: kv[1].get("layer", 0))
+        order = kids if stack else sorted(kids, key=lambda kv: self.deepest_layer(kv[1]))
         cursor = 0
         for _, child in order:
             if stack:
@@ -412,6 +417,17 @@ class Renderer:
             else:
                 self.layout(child, px, py, w, h, index)
         return w, h
+
+    def deepest_layer(self, control):
+        """The highest `layer` anywhere in [control]'s subtree, which is what orders it."""
+        cached = self.layers.get(id(control))
+        if cached is not None:
+            return cached
+        deepest = control.get("layer", 0)
+        for _, child in self.children(control):
+            deepest = max(deepest, self.deepest_layer(child))
+        self.layers[id(control)] = deepest
+        return deepest
 
     def paint(self, target):
         """Draws what layout placed, in the order layout placed it."""
@@ -447,6 +463,7 @@ class Renderer:
 
     def draw(self, target, control, x, y, parent_w, parent_h):
         self.ops = []
+        self.layers = {}
         self.layout(control, x, y, parent_w, parent_h)
         self.paint(target)
 
