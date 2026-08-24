@@ -65,6 +65,9 @@ Register it:
 
 ## What it does not do yet
 
+- `clips_children` is honoured, but only where the window measures: `fill` and `common.scrolling_panel`'s
+  own internals are not modelled, so a scroll view port comes out nought by nought. Those are
+  reported and drawn unclipped — the content appears at full height, over whatever is beneath it.
 - Bindings other than a form's caption and texture.
 - `%cm` is read as the content size, not the largest child.
 - Item pictures come from vanilla paths only.

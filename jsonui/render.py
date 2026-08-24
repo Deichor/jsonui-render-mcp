@@ -373,7 +373,7 @@ class Renderer:
             h = 8
         return w, h
 
-    def layout(self, control, x, y, parent_w, parent_h, index=None):
+    def layout(self, control, x, y, parent_w, parent_h, index=None, clip=None):
         """Places a control and everything under it, without painting anything yet.
 
         `layer` orders a sibling group and nothing wider — but a sibling is a *subtree*, and it is
@@ -398,7 +398,28 @@ class Renderer:
         px = x + int(parent_w * anchor_from[0]) - int(w * anchor_to[0]) + ox
         py = y + int(parent_h * anchor_from[1]) - int(h * anchor_to[1]) + oy
 
-        self.ops.append((control, px, py, w, h, index))
+        self.ops.append((control, px, py, w, h, index, clip))
+
+        # `clips_children` is Mojang's own, and it is what a scroll view port is: the content is
+        # laid out at its full height and the window shows a slice. Without it a grid of 36 cards
+        # draws straight through the rule and the foot beneath it, which reads as a broken layout
+        # rather than as the renderer declining to scroll.
+        if control.get("clips_children"):
+            box = (px, py, px + w, py + h)
+            if box[2] <= box[0] or box[3] <= box[1]:
+                # A window this never measured — `fill` and the scrolling panel's own internals are
+                # not modelled here, and they come out nought by nought. Clipping to that would
+                # erase everything inside it, so the window is reported and ignored: what is drawn
+                # is then the content at full height, which is wrong in a way that can be seen
+                # rather than wrong in a way that looks like an empty screen.
+                self.problems.append(
+                    f"a clips_children window measured {w}x{h}; its content is drawn unclipped"
+                )
+            else:
+                clip = box if clip is None else (
+                    max(clip[0], box[0]), max(clip[1], box[1]),
+                    min(clip[2], box[2]), min(clip[3], box[3]),
+                )
 
         kids = self.children(control)
         stack = control.get("type") == "stack_panel"
@@ -411,11 +432,11 @@ class Renderer:
                 cw, ch = self.layout(
                     child,
                     px + (0 if vertical else cursor), py + (cursor if vertical else 0),
-                    w, h if not vertical else 0, index,
+                    w, h if not vertical else 0, index, clip,
                 )
                 cursor += ch if vertical else cw
             else:
-                self.layout(child, px, py, w, h, index)
+                self.layout(child, px, py, w, h, index, clip)
         return w, h
 
     def deepest_layer(self, control):
@@ -431,35 +452,48 @@ class Renderer:
 
     def paint(self, target):
         """Draws what layout placed, in the order layout placed it."""
-        for control, px, py, w, h, index in self.ops:
-            kind = control.get("type")
-            if kind == "image":
-                texture = control.get("texture") or self.properties(control, index).get("#texture")
-                if not texture:
+        for control, px, py, w, h, index, clip in self.ops:
+            if clip is not None:
+                if clip[2] <= clip[0] or clip[3] <= clip[1]:
                     continue
-                art = self.textures.stretched(texture, w, h)
-                if art is None:
+                if not (clip[0] <= px and clip[1] <= py and px + w <= clip[2] and py + h <= clip[3]):
+                    # Drawn apart and composited back through the window, which is the only way to
+                    # cut a glyph or a stretched texture in half.
+                    scratch = Image.new("RGBA", target.size, (0, 0, 0, 0))
+                    self.paint_one(scratch, control, px, py, w, h, index)
+                    target.alpha_composite(scratch.crop(clip), (clip[0], clip[1]))
                     continue
-                colour = control.get("color")
-                if colour is not None:
-                    # A colour multiplies a texture. [1,1,1] is the identity, not white.
-                    art = self.multiply(art, self.tint(colour, (255, 255, 255, 255)))
-                target.alpha_composite(art, (px, py))
-            elif kind == "label":
-                text = self.text_of(control, index)
-                if not text:
-                    continue
-                tint = self.tint(control.get("color"))
-                align = control.get("text_alignment", "left")
-                shown, dropped = self.lines_of(control, text, w, h, w, h)
-                if dropped:
-                    self.problems.append(
-                        f"'{text}' does not fit its box; the client shows '{' '.join(shown)}'"
-                    )
-                for row, line in enumerate(shown):
-                    tw = self.font.measure(line)
-                    tx = px + (w - tw) // 2 if align == "center" else (px + w - tw if align == "right" else px)
-                    self.font.draw(target, line, tx, py + row * LINE_HEIGHT, tint, shadow=bool(control.get("shadow")))
+            self.paint_one(target, control, px, py, w, h, index)
+
+    def paint_one(self, target, control, px, py, w, h, index):
+        kind = control.get("type")
+        if kind == "image":
+            texture = control.get("texture") or self.properties(control, index).get("#texture")
+            if not texture:
+                return
+            art = self.textures.stretched(texture, w, h)
+            if art is None:
+                return
+            colour = control.get("color")
+            if colour is not None:
+                # A colour multiplies a texture. [1,1,1] is the identity, not white.
+                art = self.multiply(art, self.tint(colour, (255, 255, 255, 255)))
+            target.alpha_composite(art, (px, py))
+        elif kind == "label":
+            text = self.text_of(control, index)
+            if not text:
+                return
+            tint = self.tint(control.get("color"))
+            align = control.get("text_alignment", "left")
+            shown, dropped = self.lines_of(control, text, w, h, w, h)
+            if dropped:
+                self.problems.append(
+                    f"'{text}' does not fit its box; the client shows '{' '.join(shown)}'"
+                )
+            for row, line in enumerate(shown):
+                tw = self.font.measure(line)
+                tx = px + (w - tw) // 2 if align == "center" else (px + w - tw if align == "right" else px)
+                self.font.draw(target, line, tx, py + row * LINE_HEIGHT, tint, shadow=bool(control.get("shadow")))
 
     def draw(self, target, control, x, y, parent_w, parent_h):
         self.ops = []
