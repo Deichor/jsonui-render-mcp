@@ -20,6 +20,18 @@ VANILLA_UI = SAMPLES / "resource_pack/ui"
 
 # --- font ---------------------------------------------------------------------------------------
 
+# A formatting code and the character it governs. The client reads these as instructions and draws
+# none of them, so anything measuring or drawing a caption has to take them off first — a marker is
+# thirteen of these on the front of a line, and left in they are thirteen visible letters and about
+# eighty pixels of width that is not there.
+FORMATTING = re.compile("\u00a7.")
+
+
+def plain(text):
+    """A caption as the characters the client actually draws."""
+    return FORMATTING.sub("", text) if isinstance(text, str) else text
+
+
 class Font:
     """Minecraft's bitmap font, measured the way the game measures it: by trimming blank columns."""
 
@@ -50,7 +62,7 @@ class Font:
 
     def measure(self, text):
         width = 0
-        for ch in text:
+        for ch in plain(text):
             if ch == " ":
                 width += self.space_width + self.letter_gap
             elif ch in self.glyphs:
@@ -61,6 +73,10 @@ class Font:
 
     def wrap(self, text, width):
         """Breaks at a space, and inside a word only if it cannot fit. Labels wrap, never truncate."""
+        # A break the text asks for comes first, and is not negotiable: a client honours it whether
+        # or not the line would have fit. Wrapping each piece afterwards is what a long one gets.
+        if "\n" in text:
+            return [line for piece in text.split("\n") for line in self.wrap(piece, width)]
         if not width or width <= 0 or self.measure(text) <= width:
             return [text]
         lines, line = [], ""
@@ -88,7 +104,7 @@ class Font:
         if shadow:
             self.draw(target, text, x + 1, y + 1, (63, 63, 63, 255))
         cursor = x
-        for ch in text:
+        for ch in plain(text):
             if ch == " ":
                 cursor += self.space_width + self.letter_gap
                 continue
@@ -191,7 +207,7 @@ ANCHORS = {
 TERM = re.compile(r"([+-]?)\s*([0-9.]+)\s*(%cm|%c|%|px)?")
 
 
-def axis(value, parent, content, font, text, content_max=None):
+def axis(value, parent, content, font, text, content_max=None, problems=None):
     """One axis of a size: a sum of parent (`%`), content (`%c`, `%cm`) and pixel terms."""
     if isinstance(value, (int, float)):
         return int(value)
@@ -199,6 +215,15 @@ def axis(value, parent, content, font, text, content_max=None):
         return 0
     if value == "default":
         return font.measure(text) if text is not None else content
+    # `fill` and a variable no ancestor set both used to come out nought, and a nought-sized box is
+    # not a small box — it is a `clips_children` window that clips to nothing, so the renderer gave
+    # up on clipping and drew the list straight through the rule and the foot beneath it. The
+    # parent's own size is the honest reading of both: `fill` means exactly that, and a scroll
+    # port's stack is bounded by the port whatever names it.
+    if value == "fill" or value.startswith("$"):
+        if problems is not None:
+            problems.append(f"size '{value}' is not modelled here; taken as the parent's {parent}px")
+        return int(parent)
 
     total, seen = 0.0, False
     for sign, number, unit in TERM.findall(value):
@@ -221,6 +246,9 @@ class Renderer:
     def __init__(self, controls, textures, font, entries, title, problems, index, icons=None):
         self.index = index
         self.ops = []
+        # Set here as well as in `draw`, so a caller that lays out without painting — `check_anchors`
+        # does — does not fall over on the first sibling it has to order.
+        self.layers = {}
         self.controls = controls
         self.textures = textures
         self.font = font
@@ -367,13 +395,13 @@ class Renderer:
                 else:
                     content_w, content_h = max(content_w, cw), max(content_h, ch)
 
-        w = axis(size[0], parent_w, content_w, self.font, text, max_w)
-        h = axis(size[1], parent_h, content_h, self.font, text, max_h)
+        w = axis(size[0], parent_w, content_w, self.font, text, max_w, self.problems)
+        h = axis(size[1], parent_h, content_h, self.font, text, max_h, self.problems)
         if text is not None and size[1] == "default":
             h = 8
         return w, h
 
-    def layout(self, control, x, y, parent_w, parent_h, index=None, clip=None):
+    def layout(self, control, x, y, parent_w, parent_h, index=None, clip=None, frame=None):
         """Places a control and everything under it, without painting anything yet.
 
         `layer` orders a sibling group and nothing wider — but a sibling is a *subtree*, and it is
@@ -408,18 +436,31 @@ class Renderer:
             box = (px, py, px + w, py + h)
             if box[2] <= box[0] or box[3] <= box[1]:
                 # A window this never measured — `fill` and the scrolling panel's own internals are
-                # not modelled here, and they come out nought by nought. Clipping to that would
-                # erase everything inside it, so the window is reported and ignored: what is drawn
-                # is then the content at full height, which is wrong in a way that can be seen
-                # rather than wrong in a way that looks like an empty screen.
+                # not modelled here, and they come out nought by nought. Clipping to nothing would
+                # erase everything inside it, so the box falls back to the parent's: a scroll port
+                # is bounded by whatever holds it, and a window that fills its parent is the right
+                # answer far more often than no window at all. Drawing it unclipped instead let a
+                # list run straight through the rule and the foot under it, which reads as a broken
+                # screen rather than as the renderer declining to scroll.
+                # The parent first, then the nearest ancestor that was measured at all: a scroll
+                # port's own internals collapse in a chain, so the one directly above is often nought
+                # as well and only [frame] still names a real box.
+                box = (x, y, x + parent_w, y + parent_h)
+                if box[2] <= box[0] or box[3] <= box[1]:
+                    box = frame or box
                 self.problems.append(
-                    f"a clips_children window measured {w}x{h}; its content is drawn unclipped"
+                    f"a clips_children window measured {w}x{h}; clipped to {box} instead"
                 )
-            else:
+
+            if box[2] > box[0] and box[3] > box[1]:
                 clip = box if clip is None else (
                     max(clip[0], box[0]), max(clip[1], box[1]),
                     min(clip[2], box[2]), min(clip[3], box[3]),
                 )
+
+        # The last box that had a size, for a `clips_children` window whose own chain collapsed.
+        if w > 0 and h > 0:
+            frame = (px, py, px + w, py + h)
 
         kids = self.children(control)
         stack = control.get("type") == "stack_panel"
@@ -432,11 +473,11 @@ class Renderer:
                 cw, ch = self.layout(
                     child,
                     px + (0 if vertical else cursor), py + (cursor if vertical else 0),
-                    w, h if not vertical else 0, index, clip,
+                    w, h if not vertical else 0, index, clip, frame,
                 )
                 cursor += ch if vertical else cw
             else:
-                self.layout(child, px, py, w, h, index, clip)
+                self.layout(child, px, py, w, h, index, clip, frame)
         return w, h
 
     def deepest_layer(self, control):

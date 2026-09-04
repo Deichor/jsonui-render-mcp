@@ -37,7 +37,7 @@ def load_jsonc(path):
 
 # --- conditions ---------------------------------------------------------------------------------
 
-_TOKENS = re.compile(r"\(|\)|<>|!=|=|'[^']*'|\$[\w.]+|[\w.#]+")
+_TOKENS = re.compile(r"\(|\)|<>|!=|=|-|'[^']*'|\$[\w.]+|[\w.#]+")
 
 
 def _tokenize(text):
@@ -83,12 +83,35 @@ class _Condition:
         return self.comparison()
 
     def comparison(self):
-        left = self.atom()
+        left = self.difference()
         if self.peek() in ("=", "<>", "!="):
             operator = self.take()
-            right = self.atom()
+            right = self.difference()
             return (left == right) if operator == "=" else (left != right)
         return left
+
+    def difference(self):
+        """`a - b` on strings: b taken out of a, once.
+
+        It is the only test JSON UI has. A screen marker and a settings-row token are both invisible
+        formatting codes on the front of a caption, and `(#text - 'token') = #text` is how a control
+        asks whether its caption carries one — false when it does, which is why every gate is
+        wrapped in `not`. First occurrence rather than all of them, which is what the client does;
+        the difference cannot show on a marker, since a caption carries at most one.
+        """
+        value = self.atom()
+        while self.peek() == "-":
+            self.take()
+            right = self.atom()
+            if isinstance(value, str) and isinstance(right, str):
+                value = value.replace(right, "", 1)
+            else:
+                # Numbers subtract; anything else is left alone rather than guessed at.
+                try:
+                    value = float(value) - float(right)
+                except (TypeError, ValueError):
+                    pass
+        return value
 
     def atom(self):
         token = self.take()

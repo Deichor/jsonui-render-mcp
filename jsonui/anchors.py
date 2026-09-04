@@ -58,7 +58,7 @@ def rects(dump, ref, overrides):
 
     walk(root)
     found = {}
-    for control, x, y, w, h, _ in renderer.ops:
+    for control, x, y, w, h, _, _clip in renderer.ops:
         name = named.get(id(control))
         if name:
             found.setdefault(name, (x, y, w, h))
