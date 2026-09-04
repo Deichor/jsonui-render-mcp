@@ -290,8 +290,15 @@ class Renderer:
         return scope
 
     def hidden(self, control, index):
-        """Whether a `#visible` binding switches this off. Unknown properties are left visible."""
+        """Whether a `#visible` binding switches this off. Unknown properties are left visible.
+
+        **The last binding wins.** Two of them writing `#visible` do not combine into an `and`: the
+        client evaluates each in turn and the one that runs last is the one that stands. Reading
+        them as an `and` here hid a control the client draws, which is the direction that lies —
+        a pack whose gates contradict each other looked correct in a render and wrong on a phone.
+        """
         scope = self.properties(control, index)
+        visible = True
         for binding in control.get("bindings", []) or []:
             source = binding.get("source_property_name")
             if binding.get("target_property_name") != "#visible" or not source:
@@ -300,9 +307,8 @@ class Renderer:
             if unknown:
                 self.problems.append(f"binding reads {', '.join(sorted(set(unknown)))}, which this cannot resolve; drawn anyway")
                 continue
-            if not truth(source, scope):
-                return True
-        return False
+            visible = bool(truth(source, scope))
+        return not visible
 
     def text_of(self, control, index):
         raw = control.get("text")
