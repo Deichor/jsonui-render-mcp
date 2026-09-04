@@ -152,6 +152,12 @@ class Index:
         # The palette lives outside any namespace; without it every templated colour is lost.
         globals_file = Path(vanilla_ui_dir) / "_global_variables.json"
         self.globals = load_jsonc(globals_file) if globals_file.exists() else {}
+        # A phone, which is the only thing these screens are drawn for. Mojang branches on `$touch`
+        # all through the scrolling panel — a different pane size, different bar padding, a bar that
+        # sits *inside* the content rather than beside it — and left unset it reads as false, so the
+        # renderer built the mouse variant and drew a scroll bar the device never has. What a phone
+        # actually gets is the bar overlapping the right-hand end of every row.
+        self.globals.setdefault("$touch", True)
         for file in sorted(Path(vanilla_ui_dir).glob("*.json")):
             try:
                 doc = load_jsonc(file)
